@@ -1,7 +1,6 @@
 from automata.fa.dfa import DFA
 from white_box_oracle import WhiteBoxOracle
 
-# DFA which matches all binary strings ending in an odd number of '1's
 my_dfa = DFA(
     states={'q0', 'q1', 'q2'},
     input_symbols={'0', '1'},
