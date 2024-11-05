@@ -24,6 +24,7 @@ my_dfa2 = DFA(
     final_states={"q2"},
 )
 oracle = WhiteBoxOracle(my_dfa)
+print(oracle.membership_query(''))
 print(oracle.membership_query('101'))
 print(oracle.membership_query('100'))
 print(oracle.equivalence_query(my_dfa2))
