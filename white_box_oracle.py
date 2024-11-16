@@ -10,7 +10,7 @@ class WhiteBoxOracle(AbstractOracle):
         if (sym_diff.isempty()):
             return True
         else :
-            return sym_diff.minimum_word_length()
+            return sym_diff.random_word(sym_diff.minimum_word_length())
 
     @overrides
     def membership_query_impl(self, word):
