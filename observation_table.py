@@ -1,15 +1,20 @@
-from white_box_oracle import WhiteBoxOracle
+from abstract_oracle import AbstractOracle
 from automata.fa.dfa import DFA
 
 class ObservationTable:
   def __init__(self, input_symbols):
     self.input_symbols = input_symbols
-    self.S = {''} # Set
-    self.E = {''} # Set
-    self.R = input_symbols.copy() # S.I
-    self.f = {} # Dict
+    self.S = {''} # Set of prefixes
+    self.E = {''} # Set of suffixes
+    self.R = set() # S·Σ - S (boundary)
+    self.f = {} # Dict for membership query results
 
-  def fill(self, oracle:WhiteBoxOracle):
+    # Initialize R with all one-symbol extensions of S
+    for s in self.S:
+      for a in self.input_symbols:
+        self.R.add(s + a)
+
+  def fill(self, oracle: AbstractOracle):
     for s in self.S:
       for e in self.E:
         if (s, e) not in self.f:
@@ -23,6 +28,13 @@ class ObservationTable:
     return {e: self.f[(s, e)] for e in self.E}
 
   def make_close(self):
+    """
+    Make the observation table closed.
+    A table is closed if for each r ∈ R, there exists s ∈ S such that row(r) = row(s).
+
+    Returns:
+        True if the table was modified, False otherwise
+    """
     candidate_r = None
     for r in self.R:
       flag = False
@@ -33,68 +45,133 @@ class ObservationTable:
       if not flag:
         candidate_r = r
         break
-    if candidate_r == None:
+
+    if candidate_r is None:
       return False
     else:
+      # Move candidate_r from R to S
       self.S.add(candidate_r)
       self.R.discard(candidate_r)
-      add_to_r = set()
+
+      # Add all one-symbol extensions of candidate_r to R
       for c in self.input_symbols:
-        print('c:' + c)
-        if candidate_r + c not in self.R or candidate_r + c not in self.S:
-          add_to_r.add(candidate_r + c)
-      self.R.update(add_to_r)
+        new_string = candidate_r + c
+        if new_string not in self.S and new_string not in self.R:
+          self.R.add(new_string)
+
       return True
 
   def make_consistent(self):
+    """
+    Make the observation table consistent.
+    A table is consistent if for all s1, s2 ∈ S where row(s1) = row(s2),
+    for all a ∈ Σ, row(s1·a) = row(s2·a).
+
+    Returns:
+        True if the table was modified, False otherwise
+    """
     for s1 in self.S:
       for s2 in self.S:
         if self.row(s1) == self.row(s2):
-          print('s1:' + s1 + ' s2:' + s2)
           for a in self.input_symbols:
             s1a = s1 + a
             s2a = s2 + a
-            if self.row(s1a) != self.row(s2a):
-              print('s1a:' + s1a + ' s2a:' + s2a)
-              for e in self.E:
-                if self.row(s1a)[e] != self.row(s2a)[e]:
-                  self.E.add(a + e)
-                  return True
+
+            # Check if rows are different
+            if s1a in self.S or s1a in self.R:
+              if s2a in self.S or s2a in self.R:
+                if self.row(s1a) != self.row(s2a):
+                  # Find a distinguishing suffix
+                  for e in self.E:
+                    if self.f.get((s1a, e), None) != self.f.get((s2a, e), None):
+                      # Add a·e to E
+                      self.E.add(a + e)
+                      return True
     return False
 
   def counterexample_processing(self, counterexample):
-    for i in range(1,len(counterexample)+1):
+    """
+    Process a counterexample by adding all its prefixes to S.
+
+    Args:
+        counterexample: A string that is a counterexample to the current hypothesis
+    """
+    # Add all prefixes of the counterexample to S
+    for i in range(len(counterexample) + 1):
       prefix = counterexample[:i]
-      if prefix not in self.S:
-        if prefix not in self.R:
-          self.S.add(prefix)
-        else:
-          self.S.add(prefix)
-          self.R.discard(prefix)
-        for c in self.input_symbols:
-          if prefix + c not in self.R or prefix + c not in self.S:
-            self.R.add(prefix + c)
+
+      # If prefix is already in S, skip
+      if prefix in self.S:
+        continue
+
+      # If prefix is in R, move it to S
+      if prefix in self.R:
+        self.R.discard(prefix)
+
+      # Add prefix to S
+      self.S.add(prefix)
+
+      # Add all one-symbol extensions of prefix to R if they're not in S
+      for c in self.input_symbols:
+        new_string = prefix + c
+        if new_string not in self.S and new_string not in self.R:
+          self.R.add(new_string)
 
   def build_DFA(self):
-    initial_state = '[\u03B5]'
+    """
+    Build a DFA from the observation table.
+
+    Returns:
+        A DFA that is consistent with the observation table
+    """
+    # Create states based on unique rows
+    initial_state = '[\u03B5]'  # Epsilon state
     states = {initial_state}
     final_states = set()
-    row_states = {frozenset(self.row('').items()): initial_state}
+
+    # Map from row contents to state names
+    row_states = {}
+
+    # First, add the initial state
+    row_states[frozenset(self.row('').items())] = initial_state
+
+    # Then add states for all other unique rows in S
     for s in self.S:
       row_s = frozenset(self.row(s).items())
       if row_s not in row_states:
         row_states[row_s] = '[' + s + ']'
-    for key in row_states:
-      if key != frozenset(self.row('').items()):
-        states.add(row_states[key])
+        states.add(row_states[row_s])
+
+    # Create transitions
     transitions = {}
     for s in self.S:
-      transitions[row_states[frozenset(self.row(s).items())]] = {}
+      state = row_states[frozenset(self.row(s).items())]
+      transitions[state] = {}
+
       for c in self.input_symbols:
-        next_state = row_states[frozenset(self.row(s + c).items())]
-        transitions[row_states[frozenset(self.row(s).items())]][c] = next_state
+        s_c = s + c
+        # Find the state corresponding to row(s·c)
+        # If s·c is not in S, we need to find an s' in S such that row(s') = row(s·c)
+        if s_c in self.S:
+          next_state = row_states[frozenset(self.row(s_c).items())]
+        else:
+          # Find an s' in S such that row(s') = row(s·c)
+          found = False
+          for s_prime in self.S:
+            if self.row(s_prime) == self.row(s_c):
+              next_state = row_states[frozenset(self.row(s_prime).items())]
+              found = True
+              break
+
+          if not found:
+            # This should not happen if the table is closed
+            raise ValueError(f"Table is not closed: no state found for {s_c}")
+
+        transitions[state][c] = next_state
+
+    # Determine final states
     for s in self.S:
-      if self.row(s)[''] == True:
+      if self.row(s)[''] == True:  # Empty string is accepted from this state
         final_states.add(row_states[frozenset(self.row(s).items())])
 
     return DFA(
